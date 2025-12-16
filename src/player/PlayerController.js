@@ -33,6 +33,7 @@ export class PlayerController {
         this.maxJumpCharge = 1.0;
 
         this.heading = 0;
+        this.pitch = 0; // Vertical rotation (Flips)
 
         this.score = 0;
         this.lastTruncName = "";
@@ -61,21 +62,16 @@ export class PlayerController {
             });
 
             // Positioning
-            // Snowboard is at y=0.05, height ~0.1.
             model.position.y = 0.1;
-
-            // Scale
             model.scale.set(0.5, 0.5, 0.5);
-
-            // Orientation
-            model.rotation.y = Math.PI;
+            model.rotation.y = Math.PI; // Face Backwards to camera (snowboarding standard is sidewys?)
+            // If snowboard is sidewys, then mesh should be rotated -90?
+            // Current art is likely symmetric or facing +Z.
 
             this.mesh.add(model);
-            console.log("Snowman Loaded");
 
         }, undefined, (err) => {
             console.error("Failed to load snowman:", err);
-            // Fallback
             const bodyGeo = new THREE.BoxGeometry(0.5, 1.8, 0.5);
             const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff4444 });
             this.body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -83,7 +79,7 @@ export class PlayerController {
             this.mesh.add(this.body);
         });
 
-        // Snowboard (Keep it)
+        // Snowboard
         const boardGeo = new THREE.BoxGeometry(0.4, 0.1, 1.6);
         const boardMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         this.board = new THREE.Mesh(boardGeo, boardMat);
@@ -102,6 +98,7 @@ export class PlayerController {
 
         // Visual Rotation
         this.mesh.rotation.y = this.heading;
+        this.mesh.rotation.x = this.pitch;
 
         // Bank (Tilt) 
         if (this.grounded) {
@@ -122,14 +119,34 @@ export class PlayerController {
         if (this.input.actions.right) { turn -= 1; }
 
         if (!this.grounded) {
-            if (this.input.actions.spinLeft) turn += 1.5;
-            else if (this.input.actions.spinRight) turn -= 1.5;
+            // Faster Air Spin
+            if (this.input.actions.spinLeft) turn += 2.0;
+            else if (this.input.actions.spinRight) turn -= 2.0;
+            // Boost standard A/D spin too
+            turn *= 2.0;
         }
 
         rotationDelta = turn * this.turnSpeed * dt;
         this.heading += rotationDelta;
 
+        // Flips
         if (!this.grounded) {
+            const flipSpeed = 5.0;
+            if (this.input.actions.forward) { // W -> Frontflip (Pitch Down -)
+                this.pitch -= flipSpeed * dt;
+            } else if (this.input.actions.backward) { // S -> Backflip (Pitch Up +)
+                this.pitch += flipSpeed * dt;
+            }
+        } else {
+            // Reset Pitch
+            this.pitch = THREE.MathUtils.lerp(this.pitch, 0, dt * 10);
+            if (Math.abs(this.pitch) < 0.1) this.pitch = 0;
+        }
+
+        if (!this.grounded) {
+            // Pass pitch for trick detection?
+            // Currently TrickSystem only does Y-axis. 
+            // We can update it later.
             this.trickSystem.update(dt, rotationDelta);
         }
 
@@ -137,7 +154,7 @@ export class PlayerController {
         if (this.grounded) {
             if (this.input.actions.jump) {
                 this.jumpCharge = Math.min(this.jumpCharge + dt * 0.5, this.maxJumpCharge);
-                if (this.body) this.body.scale.y = 1.0 - (this.jumpCharge * 0.4); // Scale for squish if loaded
+                if (this.body) this.body.scale.y = 1.0 - (this.jumpCharge * 0.4);
             } else {
                 if (this.jumpCharge > 0) {
                     this.grounded = false;
@@ -214,6 +231,7 @@ export class PlayerController {
                     this.lastTruncName = trick.name;
                     console.log("Trick:", trick.name);
                 }
+                this.pitch = 0; // Reset pitch physics-side just in case
             }
 
             this.grounded = true;
@@ -228,10 +246,17 @@ export class PlayerController {
             if (this.input.actions.backward) currentFriction = 5.0;
             this.velocity.multiplyScalar(1 - currentFriction * dt);
 
+            // Switch & Steering Logic
             const speed = this.velocity.length();
             if (speed > 0.1) {
-                const desiredDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
-                const slopeDir = desiredDir.clone().sub(groundNormal.clone().multiplyScalar(desiredDir.dot(groundNormal))).normalize();
+                const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
+                const velDir = this.velocity.clone().normalize();
+                const dot = velDir.dot(forward);
+
+                // Allow switch riding
+                const targetFacing = dot >= 0 ? forward : forward.clone().negate();
+
+                const slopeDir = targetFacing.clone().sub(groundNormal.clone().multiplyScalar(targetFacing.dot(groundNormal))).normalize();
                 const grip = 8.0 * dt;
                 this.velocity.copy(this.velocity.clone().normalize().lerp(slopeDir, grip).multiplyScalar(speed));
             }
@@ -246,25 +271,11 @@ export class PlayerController {
             this.grounded = false;
             this.velocity.y -= this.gravity * dt;
 
-            // AIR CONTROL
-            const airControlSpeed = 10.0;
+            // PURE MOMENTUM - No Steering
+            // We removed the air control velocity nudging.
+            // Rotations (Heading/Pitch) are visual-only for now (and for landing direction).
 
-            if (this.input.actions.left || this.input.actions.right) {
-                const desiredDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
-                const currentSpeed = this.velocity.length();
-                if (currentSpeed > 1.0) {
-                    const steerFactor = 0.8 * dt;
-                    const newVel = this.velocity.clone().lerp(desiredDir.multiplyScalar(currentSpeed), steerFactor);
-                    newVel.y = this.velocity.y;
-                    this.velocity.copy(newVel);
-                }
-            }
-
-            if (this.input.actions.forward) {
-                const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
-                fwd.y = 0;
-                this.velocity.add(fwd.multiplyScalar(airControlSpeed * dt));
-            }
+            this.velocity.multiplyScalar(1 - 0.05 * dt);
         }
 
         this.position.add(this.velocity.clone().multiplyScalar(dt));

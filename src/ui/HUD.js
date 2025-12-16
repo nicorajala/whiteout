@@ -65,9 +65,23 @@ export class HUD {
         this.chargeBar.style.backgroundColor = '#00ffcc';
         this.chargeBar.style.transition = 'width 0.05s linear';
         barBg.appendChild(this.chargeBar);
+
+        // CRASH MESSAGE
+        this.crashMsg = document.createElement('div');
+        this.crashMsg.style.position = 'absolute';
+        this.crashMsg.style.top = '50%';
+        this.crashMsg.style.left = '50%';
+        this.crashMsg.style.transform = 'translate(-50%, -50%)';
+        this.crashMsg.style.fontSize = '80px';
+        this.crashMsg.style.fontWeight = 'bold';
+        this.crashMsg.style.color = '#ff0000';
+        this.crashMsg.style.textShadow = '0 0 20px black';
+        this.crashMsg.style.display = 'none'; // Hidden by default
+        this.crashMsg.innerText = "CRASHED!";
+        document.body.appendChild(this.crashMsg);
     }
 
-    update(speed, score, charge = 0) {
+    update(speed, score, charge = 0, crashed = false) {
         this.speedElement.innerText = `${Math.floor(speed)} km/h`;
         this.scoreElement.innerText = `SCORE: ${Math.floor(score)}`;
 
@@ -80,6 +94,12 @@ export class HUD {
         } else {
             this.chargeBar.style.backgroundColor = '#00ffcc';
             this.chargeBar.style.boxShadow = 'none';
+        }
+
+        if (crashed) {
+            this.crashMsg.style.display = 'block';
+        } else {
+            this.crashMsg.style.display = 'none';
         }
     }
 }

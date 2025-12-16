@@ -1,51 +1,47 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-// Import the asset - Vite will return the processed URL
 import modelUrl from '../assets/mountain.glb?url';
 
 export class Terrain {
     constructor(scene) {
         this.scene = scene;
-        this.mesh = new THREE.Group(); // Container for the model
-
-        // Add container to scene immediately so it's there for update loops
+        this.mesh = new THREE.Group();
         this.scene.add(this.mesh);
-
+        this.isLoaded = false;
         this.init();
     }
 
     init() {
         const loader = new GLTFLoader();
-
         console.log("Loading terrain from:", modelUrl);
 
         loader.load(modelUrl, (gltf) => {
             const model = gltf.scene;
             console.log("Terrain GLB Loaded", model);
 
+            // Custom Snow Material
+            const snowMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.9,
+                metalness: 0.1,
+                flatShading: false
+            });
+
             // Traverse to setup materials/shadows
             model.traverse((child) => {
                 if (child.isMesh) {
+                    child.material = snowMaterial; // Assign the new snow material
+                    child.castShadow = true;
                     child.receiveShadow = true;
-                    // Ensure material handles light
-                    if (child.material) {
-                        // Check if it's already a standard material
-                        if (child.material.isMeshStandardMaterial || child.material.isMeshPhysicalMaterial) {
-                            // Tweak properties for snow look if needed
-                            child.material.roughness = 0.9;
-                        } else {
-                            // Convert to Standard if it's something basic?
-                            // Usually GLTFLoader uses Standard.
-                        }
-                    }
                 }
             });
 
-            // Adjust Scale/Position if necessary
+            // Adjust Scale/Position
             model.scale.set(10, 10, 10);
             model.position.set(0, -1000, 200);
 
             this.mesh.add(model);
+            this.isLoaded = true;
 
         }, (xhr) => {
             // Progress
@@ -55,7 +51,7 @@ export class Terrain {
         });
     }
 
-    // Helper methods if we want to manually query height later (optional)
+    // Helper methods
     getHeight(x, z) { return 0; }
     getNormal(x, z) { return new THREE.Vector3(0, 1, 0); }
 }

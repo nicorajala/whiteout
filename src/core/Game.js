@@ -84,7 +84,8 @@ export class Game {
             const speed = this.player.velocity ? this.player.velocity.length() : 0;
             const score = this.player.score || 0;
             const charge = this.player.jumpCharge || 0;
-            this.hud.update(speed * 3.6, score, charge);
+            const crashed = this.player.crashed || false;
+            this.hud.update(speed * 3.6, score, charge, crashed);
         }
     }
 

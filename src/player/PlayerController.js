@@ -16,6 +16,9 @@ export class PlayerController {
 
         this.position = new THREE.Vector3(0, 10, 40);
         this.velocity = new THREE.Vector3();
+        this.quaternion = new THREE.Quaternion(); // Master Rotation
+        this.angularVelocity = new THREE.Vector3(); // Physics Rotation
+
         this.speed = 0;
 
         this.raycaster = new THREE.Raycaster();
@@ -26,51 +29,43 @@ export class PlayerController {
         // Constants
         this.gravity = 30.0;
         this.friction = 0.2;
-        this.turnSpeed = 3.0;
+        this.turnSpeed = 2.0;
         this.maxSpeed = 60.0;
-        this.jumpForce = 10.0; // Reduced to 25.0
+        this.jumpForce = 25.0;
         this.jumpCharge = 0;
         this.maxJumpCharge = 1.0;
 
-        this.heading = 0;
-        this.pitch = 0;
-        this.roll = 0;
+        // Input Sensitivities (Torque)
+        this.airSpinTorque = 10.0;
+        this.airFlipTorque = 8.0;
 
         this.airTime = 0;
-
         this.score = 0;
-        this.lastTruncName = "";
+        this.crashed = false;
+        this.recoveryTimer = 0;
 
         this.init();
     }
 
     init() {
-        // Player Container (Pivot)
         this.mesh = new THREE.Group();
         this.mesh.castShadow = true;
         this.scene.add(this.mesh);
 
-        // Load Snowman
         const loader = new GLTFLoader();
         loader.load(snowmanUrl, (gltf) => {
             const model = gltf.scene;
             this.body = model;
-
-            // Visuals
             model.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
                 }
             });
-
-            // Positioning
             model.position.y = 0.1;
             model.scale.set(0.5, 0.5, 0.5);
             model.rotation.y = Math.PI;
-
             this.mesh.add(model);
-
         }, undefined, (err) => {
             console.error("Failed to load snowman:", err);
             const bodyGeo = new THREE.BoxGeometry(0.5, 1.8, 0.5);
@@ -80,7 +75,6 @@ export class PlayerController {
             this.mesh.add(this.body);
         });
 
-        // Snowboard - 2x Size
         const boardGeo = new THREE.BoxGeometry(0.8, 0.1, 3.2);
         const boardMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         this.board = new THREE.Mesh(boardGeo, boardMat);
@@ -91,116 +85,97 @@ export class PlayerController {
     }
 
     update(dt) {
+        // SAFETY: Wait for Terrain
+        if (!this.terrain.isLoaded) return;
+
+        if (this.crashed) {
+            this.handleCrash(dt);
+            return;
+        }
+
         this.handleInput(dt);
         this.handlePhysics(dt);
 
-        // Apply position
+        // Apply Physics State to Visuals
         this.mesh.position.copy(this.position);
-
-        // Visual Rotation
-        this.mesh.rotation.order = 'YXZ';
-        this.mesh.rotation.y = this.heading;
-        this.mesh.rotation.x = this.pitch;
-
-        // Bank (Tilt) / Roll
-        if (this.grounded) {
-            const lean = (this.input.actions.left ? 1 : 0) - (this.input.actions.right ? 1 : 0);
-            const targetLean = lean * 0.5;
-            this.roll = THREE.MathUtils.lerp(this.roll, targetLean, dt * 5);
-        } else {
-            // Air Roll Decay
-            this.roll = THREE.MathUtils.lerp(this.roll, 0, dt * 2);
-        }
-        this.mesh.rotation.z = this.roll;
+        this.mesh.quaternion.copy(this.quaternion);
     }
 
     handleInput(dt) {
-        let rotationDelta = 0;
-        const isFlipping = this.input.actions.forward || this.input.actions.backward;
-        const isSpinning = this.input.actions.left || this.input.actions.right;
-
-        // Turning & Spinning
-        let turn = 0;
-
         if (this.grounded) {
-            // Ground Turning
-            if (this.input.actions.left) { turn += 1; }
-            if (this.input.actions.right) { turn -= 1; }
-            rotationDelta = turn * this.turnSpeed * dt;
-            this.heading += rotationDelta;
-        } else {
-            // AIR LOGIC - EXCLUSIVE TRICKS
-
-            if (isFlipping) {
-                // FLIP MODE
-                rotationDelta = 0;
-
-            } else if (isSpinning) {
-                // SPIN MODE (Only if not flipping)
-                if (this.input.actions.left) { turn += 1; }
-                if (this.input.actions.right) { turn -= 1; }
-
-                if (this.input.actions.spinLeft) turn += 2.0;
-                else if (this.input.actions.spinRight) turn -= 2.0;
-
-                turn *= 2.0;
-                rotationDelta = turn * this.turnSpeed * dt;
-                this.heading += rotationDelta;
+            // GROUND INPUT: Steering
+            if (this.input.actions.left) {
+                const axis = new THREE.Vector3(0, 1, 0);
+                this.velocity.applyAxisAngle(axis, this.turnSpeed * dt);
             }
-        }
-
-        // Flips
-        if (!this.grounded) {
-            const flipSpeed = 5.0;
-            if (this.input.actions.forward) { // Frontflip
-                this.pitch -= flipSpeed * dt;
-            } else if (this.input.actions.backward) { // Backflip
-                this.pitch += flipSpeed * dt;
+            if (this.input.actions.right) {
+                const axis = new THREE.Vector3(0, 1, 0);
+                this.velocity.applyAxisAngle(axis, -this.turnSpeed * dt);
             }
-        } else {
-            // Reset Pitch
-            this.pitch = THREE.MathUtils.lerp(this.pitch, 0, dt * 10);
-            if (Math.abs(this.pitch) < 0.1) this.pitch = 0;
-        }
 
-        if (!this.grounded) {
-            this.trickSystem.update(dt, rotationDelta);
-        }
-
-        // Jumping - Coyote Time Support
-        if (this.grounded || this.airTime < 0.25) {
+            // Jumping
             if (this.input.actions.jump) {
                 this.jumpCharge = Math.min(this.jumpCharge + dt * 1.5, this.maxJumpCharge);
                 if (this.body) this.body.scale.y = 1.0 - (this.jumpCharge * 0.4);
             } else {
                 if (this.jumpCharge > 0) {
-                    this.grounded = false;
-                    this.airTime = 1.0;
-
-                    // Boosted Power Tuned
-                    // Base 25. Multiplier 0.8 (20) to 2.5 (62.5).
-                    const finalForce = this.jumpForce * (0.8 + this.jumpCharge * 1.5);
-                    // Increased max multiplier slightly to ensure FULL charge is still fun
-
-                    if (this.velocity.y < 0) this.velocity.y = 0;
-                    this.velocity.y += finalForce;
-
-                    this.jumpCharge = 0;
-                    if (this.body) this.body.scale.y = 1.0;
-                    this.trickSystem.startJump();
+                    this.doJump();
                 }
                 if (this.body) this.body.scale.y = 1.0;
             }
+
         } else {
-            if (this.airTime > 0.25) {
-                this.jumpCharge = 0;
-                if (this.body) this.body.scale.y = 1.0;
+            // AIR INPUT: TORQUE
+            const torque = new THREE.Vector3(0, 0, 0);
+
+            if (this.input.actions.left) torque.y += 1;
+            if (this.input.actions.right) torque.y -= 1;
+
+            if (this.input.actions.forward) torque.x -= 1; // Frontflip
+            if (this.input.actions.backward) torque.x += 1; // Backflip
+
+            // Apply Torque (Local Space)
+            if (torque.lengthSq() > 0) {
+                torque.normalize();
+
+                // Scale torque (Snappier response)
+                torque.x *= 15.0 * dt; // Increased from 8
+                torque.y *= 20.0 * dt; // Increased from 10
+
+                const globalTorque = torque.clone().applyQuaternion(this.quaternion);
+                this.angularVelocity.add(globalTorque);
+            } else {
+                // AUTO-LEVEL ASSIST (When no input)
+                // Gently rotate towards nearest upright orientation to help landing
+                // But we don't want to kill the "cool" off-axis state completely.
+                // Just damp non-yaw rotation?
+                // Let's damp Angular Velocity heavily first.
             }
+
+            // Strong Damping (Stops spinning quickly when key released)
+            // increasing damping "easier to control"
+            this.angularVelocity.multiplyScalar(1.0 - 3.0 * dt);
+
+            // Reset Charge
+            if (this.airTime > 0.25) this.jumpCharge = 0;
+            if (this.body) this.body.scale.y = 1.0;
         }
     }
 
+    doJump() {
+        this.grounded = false;
+        this.airTime = 1.0;
+
+        const force = this.jumpForce * (0.8 + this.jumpCharge * 1.5);
+        this.velocity.y = Math.max(0, this.velocity.y) + force;
+
+        this.jumpCharge = 0;
+        if (this.body) this.body.scale.y = 1.0;
+        this.trickSystem.startJump();
+    }
+
     handlePhysics(dt) {
-        // Multi-point Raycast
+        // --- 1. MULTI-POINT RAYCAST GROUND CHECK ---
         const offsets = [
             new THREE.Vector3(0, 0, 0),
             new THREE.Vector3(-0.3, 0, -0.7),
@@ -209,115 +184,146 @@ export class PlayerController {
             new THREE.Vector3(0.3, 0, 0.7)
         ];
 
-        const rotationMatrix = new THREE.Matrix4().makeRotationY(this.heading);
-
-        let avgHeight = 0;
         let validHits = 0;
+        let avgHeight = 0;
         let avgNormal = new THREE.Vector3(0, 0, 0);
 
         for (const offset of offsets) {
-            const worldOffset = offset.clone().applyMatrix4(rotationMatrix);
+            // Transform offset by player rotation to cast relative to board
+            const worldOffset = offset.clone().applyQuaternion(this.quaternion);
             const rayOrigin = this.position.clone().add(worldOffset);
-            rayOrigin.y += 3.0;
+
+            // Start higher to prevent clipping
+            rayOrigin.y += 5.0;
 
             this.raycaster.set(rayOrigin, this.downVector);
             const intersects = this.raycaster.intersectObject(this.terrain.mesh, true);
 
             if (intersects.length > 0) {
-                if (validHits === 0) avgHeight = intersects[0].point.y;
-                else avgHeight += intersects[0].point.y;
+                const hit = intersects[0];
+                if (validHits === 0) avgHeight = hit.point.y;
+                else avgHeight += hit.point.y;
 
-                const obj = intersects[0].object;
-                const normalMatrix = new THREE.Matrix3().getNormalMatrix(obj.matrixWorld);
-                const worldNormal = intersects[0].face.normal.clone().applyMatrix3(normalMatrix).normalize();
+                // Normal
+                const obj = hit.object;
+                const nMat = new THREE.Matrix3().getNormalMatrix(obj.matrixWorld);
+                const wNorm = hit.face.normal.clone().applyMatrix3(nMat).normalize();
 
-                avgNormal.add(worldNormal);
+                avgNormal.add(wNorm);
                 validHits++;
             }
         }
-
-        if (validHits > 1) avgHeight /= validHits;
 
         let groundHeight = -1000;
         let groundNormal = new THREE.Vector3(0, 1, 0);
 
         if (validHits > 0) {
+            avgHeight /= validHits;
             groundHeight = avgHeight;
             groundNormal = avgNormal.divideScalar(validHits).normalize();
         }
 
-        const snapDistance = 0.5;
-        const distToGround = this.position.y - groundHeight;
+        const dist = this.position.y - groundHeight;
+        const snap = 0.5;
 
-        // Check ground
-        if (distToGround <= snapDistance + 0.5 && this.velocity.y <= 0.1) {
+        // --- 2. INTEGRATE VELOCITY ---
+        this.velocity.y -= this.gravity * dt;
+        this.position.add(this.velocity.clone().multiplyScalar(dt));
+
+        // --- 3. GROUND / AIR LOGIC ---
+        // Check if we hit ground and are failing downwards (or slightly up)
+        if (dist < snap && this.velocity.y <= 0.1) {
+            // === LANDING / GROUND ===
+
             if (!this.grounded) {
-                const trick = this.trickSystem.land();
-                if (trick.points > 0) {
-                    this.score += trick.points;
-                    this.lastTruncName = trick.name;
-                    console.log("Trick:", trick.name);
+                // Just Landed: CHECK ALIGNMENT
+                const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.quaternion);
+                const alignment = up.dot(groundNormal);
+
+                if (alignment < 0.2) { // Relaxed from 0.5
+                    // CRASH! (Too angled)
+                    this.crash();
+                    return;
+                } else {
+                    // SUCCESSFUL LANDING
+                    const trick = this.trickSystem.land(this.quaternion); // Pass current Rot
+                    if (trick.points > 0) {
+                        this.score += trick.points;
+                        console.log("LANDED:", trick.name, trick.points);
+                    }
                 }
-                this.pitch = 0;
-                this.roll = 0;
+
+                this.grounded = true;
+                this.airTime = 0;
+                this.angularVelocity.set(0, 0, 0); // Stop spinning
             }
 
             this.grounded = true;
-            this.airTime = 0;
             this.position.y = groundHeight;
+            this.velocity.y = 0;
 
-            // Physics
-            const gravityVec = new THREE.Vector3(0, -1, 0);
-            const gravityComponent = gravityVec.clone().sub(groundNormal.clone().multiplyScalar(gravityVec.dot(groundNormal)));
-            this.velocity.add(gravityComponent.multiplyScalar(this.gravity * dt));
-
-            let currentFriction = this.friction;
-            if (this.input.actions.backward) currentFriction = 5.0;
-            this.velocity.multiplyScalar(1 - currentFriction * dt);
-
-            // Switch & Steering
-            const speed = this.velocity.length();
-            if (speed > 0.1) {
-                const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
-                const velDir = this.velocity.clone().normalize();
-                const dot = velDir.dot(forward);
-
-                const targetFacing = dot >= 0 ? forward : forward.clone().negate();
-
-                const slopeDir = targetFacing.clone().sub(groundNormal.clone().multiplyScalar(targetFacing.dot(groundNormal))).normalize();
-                const grip = 8.0 * dt;
-                this.velocity.copy(this.velocity.clone().normalize().lerp(slopeDir, grip).multiplyScalar(speed));
+            // Friction
+            if (this.input.actions.backward) {
+                this.velocity.multiplyScalar(1 - 5.0 * dt);
+            } else {
+                this.velocity.multiplyScalar(1 - this.friction * dt);
             }
 
-            if (this.velocity.length() > this.maxSpeed) this.velocity.setLength(this.maxSpeed);
+            // Slope Gravity
+            const gravityVec = new THREE.Vector3(0, -1, 0);
+            const slopeForce = gravityVec.clone().sub(groundNormal.clone().multiplyScalar(gravityVec.dot(groundNormal)));
+            this.velocity.add(slopeForce.multiplyScalar(this.gravity * dt));
 
-            const vn = this.velocity.dot(groundNormal);
-            if (vn < 0) this.velocity.sub(groundNormal.clone().multiplyScalar(vn));
+            // ORIENTATION ALIGNMENT
+            if (this.velocity.lengthSq() > 0.1) {
+                const velDir = this.velocity.clone().normalize();
+
+                // Construct target rotation
+                const targetMx = new THREE.Matrix4().lookAt(
+                    new THREE.Vector3(0, 0, 0),
+                    velDir,
+                    groundNormal
+                );
+                const targetQ = new THREE.Quaternion().setFromRotationMatrix(targetMx);
+                this.quaternion.slerp(targetQ, dt * 10);
+            }
 
         } else {
-            // AIR PHYSICS
+            // === AIR ===
             this.grounded = false;
             this.airTime += dt;
 
-            this.velocity.y -= this.gravity * dt;
-
-            // PURE MOMENTUM
-            this.velocity.multiplyScalar(1 - 0.05 * dt);
-
-            const isFlipping = this.input.actions.forward || this.input.actions.backward;
-            if (isFlipping) {
-                if (this.input.actions.left || this.input.actions.right) {
-                    let steerDir = new THREE.Vector3();
-                    if (this.input.actions.left) steerDir.set(-1, 0, 0);
-                    if (this.input.actions.right) steerDir.set(1, 0, 0);
-                    steerDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
-
-                    const airSteerSpeed = 15.0;
-                    this.velocity.add(steerDir.multiplyScalar(airSteerSpeed * dt));
-                }
+            // Apply Quaternion Rotation from Angular Velocity
+            if (this.angularVelocity.lengthSq() > 0.0001) {
+                const rotStep = this.angularVelocity.length() * dt;
+                const axis = this.angularVelocity.clone().normalize();
+                const dQ = new THREE.Quaternion().setFromAxisAngle(axis, rotStep);
+                this.quaternion.premultiply(dQ);
             }
+            this.trickSystem.update(dt, this.quaternion);
         }
+    }
 
-        this.position.add(this.velocity.clone().multiplyScalar(dt));
+    crash() {
+        this.crashed = true;
+        this.recoveryTimer = 2.0;
+        console.log("CRASHED!");
+        this.velocity.set(0, 0, 0);
+        this.angularVelocity.set(0, 0, 0);
+        this.mesh.rotation.z = Math.PI / 2; // Lie on side (visual only? No, this messes with Quaternion tracking but ok for now)
+        // Better to set Quaternion to 'side'
+        const sideQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+        this.quaternion.multiply(sideQ);
+    }
+
+    handleCrash(dt) {
+        this.recoveryTimer -= dt;
+        if (this.recoveryTimer <= 0) {
+            this.crashed = false;
+            // Reset Orientation to upright
+            this.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0);
+            this.position.y += 2.0;
+            this.velocity.set(0, 0, 10);
+        }
     }
 }

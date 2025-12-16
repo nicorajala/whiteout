@@ -27,17 +27,17 @@ export class PlayerController {
         this.grounded = false;
 
         // Constants
-        this.gravity = 30.0;
+        this.gravity = 80.0; // Increased from 30.0 for faster acceleration
         this.friction = 0.2;
         this.turnSpeed = 2.0;
-        this.maxSpeed = 60.0;
+        this.maxSpeed = 200.0; // Increased from 60.0 for higher top speed
         this.jumpForce = 25.0;
         this.jumpCharge = 0;
         this.maxJumpCharge = 1.0;
 
         // Input Sensitivities (Torque)
-        this.airSpinTorque = 10.0;
-        this.airFlipTorque = 8.0;
+        this.airSpinTorque = 15.0; // Increased from 10.0 for faster spins
+        this.airFlipTorque = 12.0; // Increased from 8.0 for faster flips
 
         this.airTime = 0;
         this.score = 0;
@@ -92,7 +92,7 @@ export class PlayerController {
         if (!this.terrain.isLoaded) return;
 
         // Check win condition
-        if (!this.won && !this.dead && this.score >= 10000) {
+        if (!this.won && !this.dead && this.score >= 6000) {
             this.won = true;
             console.log("YOU WIN!");
         }
@@ -238,7 +238,7 @@ export class PlayerController {
         }
 
         const dist = this.position.y - groundHeight;
-        const snap = 0.5;
+        const snap = 5.0; // Increased significantly for high speed
 
         // --- 2. INTEGRATE VELOCITY ---
         this.velocity.y -= this.gravity * dt;
@@ -246,7 +246,7 @@ export class PlayerController {
 
         // --- 3. GROUND / AIR LOGIC ---
         // Check if we hit ground and are failing downwards (or slightly up)
-        if (dist < snap && this.velocity.y <= 0.1) {
+        if (dist < snap && this.velocity.y <= 10.0) { // Relaxed velocity check
             // === LANDING / GROUND ===
 
             if (!this.grounded) {
@@ -274,7 +274,10 @@ export class PlayerController {
 
             this.grounded = true;
             this.position.y = groundHeight;
-            this.velocity.y = 0;
+
+            // Only kill Y velocity if it's negative (falling) or small positive
+            // This prevents killing a big jump impulse if we were to add one here (though we don't)
+            if (this.velocity.y < 0) this.velocity.y = 0;
 
             // Friction
             if (this.input.actions.backward) {

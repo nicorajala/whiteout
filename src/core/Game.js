@@ -14,6 +14,7 @@ export class Game {
         this.renderer = null;
         this.stats = null;
         this.clock = new THREE.Clock();
+        this.escapePressed = false;
         this.rafId = null;
 
         // Subsystems
@@ -65,7 +66,7 @@ export class Game {
         this.terrain = new Terrain(this.scene);
         this.player = new PlayerController(this.scene, this.input, this.terrain);
         this.cameraController = new CameraController(this.camera, this.player.mesh, this.input);
-        this.hud = new HUD();
+        this.hud = new HUD(this.input);
 
         // Create Snowfall
         this.createSnowfall();
@@ -166,8 +167,19 @@ export class Game {
     update() {
         const dt = this.clock.getDelta();
 
-        // Don't update game until start screen is dismissed
-        if (this.hud && !this.hud.gameStarted) {
+        // Toggle Pause
+        if (this.input.keys['Escape'] && !this.escapePressed) {
+            this.escapePressed = true;
+            if (this.hud && this.hud.gameStarted) {
+                this.hud.togglePause(!this.hud.isPaused);
+            }
+        }
+        if (!this.input.keys['Escape']) {
+            this.escapePressed = false;
+        }
+
+        // Don't update game until start screen is dismissed OR if paused
+        if (this.hud && (!this.hud.gameStarted || this.hud.isPaused)) {
             return;
         }
 

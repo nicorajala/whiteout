@@ -23,15 +23,22 @@ export class Input {
         window.addEventListener('keyup', (e) => this.onKeyUp(e));
 
         document.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        document.addEventListener('click', () => {
-            if (!this.isLocked) {
-                document.body.requestPointerLock();
-            }
-        });
 
         document.addEventListener('pointerlockchange', () => {
             this.isLocked = document.pointerLockElement === document.body;
         });
+    }
+
+    requestPointerLock() {
+        if (!this.isLocked) {
+            document.body.requestPointerLock();
+        }
+    }
+
+    exitPointerLock() {
+        if (this.isLocked && document.exitPointerLock) {
+            document.exitPointerLock();
+        }
     }
 
     onMouseMove(event) {

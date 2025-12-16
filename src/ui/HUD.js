@@ -1,5 +1,6 @@
 export class HUD {
-    constructor() {
+    constructor(input) {
+        this.input = input;
         // TOP LEFT Container
         this.container = document.createElement('div');
         this.container.style.position = 'absolute';
@@ -12,11 +13,24 @@ export class HUD {
         this.container.style.zIndex = '1000'; // Ensure visibility
         document.body.appendChild(this.container);
 
+        // BOTTOM RIGHT Container for Speed
+        this.speedContainer = document.createElement('div');
+        this.speedContainer.style.position = 'absolute';
+        this.speedContainer.style.bottom = '20px';
+        this.speedContainer.style.right = '20px';
+        this.speedContainer.style.color = 'white';
+        this.speedContainer.style.fontFamily = 'Arial, sans-serif';
+        this.speedContainer.style.userSelect = 'none';
+        this.speedContainer.style.pointerEvents = 'none';
+        this.speedContainer.style.zIndex = '1000';
+        document.body.appendChild(this.speedContainer);
+
         this.speedElement = document.createElement('div');
-        this.speedElement.style.fontSize = '24px';
+        this.speedElement.style.fontSize = '32px';
         this.speedElement.style.fontWeight = 'bold';
+        this.speedElement.style.textAlign = 'right';
         this.speedElement.innerText = '0 km/h';
-        this.container.appendChild(this.speedElement);
+        this.speedContainer.appendChild(this.speedElement);
 
         this.scoreElement = document.createElement('div');
         this.scoreElement.style.fontSize = '24px';
@@ -176,7 +190,7 @@ export class HUD {
         instructions.innerHTML = `
             <div style="font-size: 24px; color: white; text-align: center; line-height: 1.8; max-width: 600px;">
                 <p style="margin: 10px 0;"><strong style="color: #ffcc00;">OBJECTIVE:</strong></p>
-                <p style="margin: 5px 0;">🏆 Reach <strong style="color: #00ff00;">10,000 points</strong> to WIN!</p>
+                <p style="margin: 5px 0;">🏆 Reach <strong style="color: #00ff00;">6,000 points</strong> to WIN!</p>
                 <p style="margin: 5px 0;">💀 Crash <strong style="color: #ff0000;">3 times</strong> and you LOSE!</p>
                 <br>
                 <p style="margin: 10px 0;"><strong style="color: #ffcc00;">CONTROLS:</strong></p>
@@ -203,6 +217,9 @@ export class HUD {
         this.playBtn.addEventListener('click', () => {
             this.startScreen.style.display = 'none';
             this.gameStarted = true;
+            if (this.input) {
+                this.input.requestPointerLock();
+            }
         });
         this.playBtn.addEventListener('mouseenter', () => {
             this.playBtn.style.backgroundColor = '#00ddaa';
@@ -214,7 +231,78 @@ export class HUD {
 
         document.body.appendChild(this.startScreen);
 
+        // PAUSE MENU
+        this.pauseMenu = document.createElement('div');
+        this.pauseMenu.style.position = 'absolute';
+        this.pauseMenu.style.top = '0';
+        this.pauseMenu.style.left = '0';
+        this.pauseMenu.style.width = '100%';
+        this.pauseMenu.style.height = '100%';
+        this.pauseMenu.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        this.pauseMenu.style.display = 'none'; // Hidden by default
+        this.pauseMenu.style.flexDirection = 'column';
+        this.pauseMenu.style.justifyContent = 'center';
+        this.pauseMenu.style.alignItems = 'center';
+        this.pauseMenu.style.zIndex = '2500';
+        this.pauseMenu.style.pointerEvents = 'auto';
+
+        const pauseTitle = document.createElement('div');
+        pauseTitle.innerText = 'PAUSED';
+        pauseTitle.style.fontSize = '80px';
+        pauseTitle.style.fontWeight = 'bold';
+        pauseTitle.style.color = 'white';
+        pauseTitle.style.marginBottom = '40px';
+        pauseTitle.style.textShadow = '0 0 20px white';
+        this.pauseMenu.appendChild(pauseTitle);
+
+        // Resume Button
+        this.resumeBtn = document.createElement('button');
+        this.resumeBtn.innerText = 'RESUME';
+        this.resumeBtn.style.fontSize = '40px';
+        this.resumeBtn.style.fontWeight = 'bold';
+        this.resumeBtn.style.padding = '15px 60px';
+        this.resumeBtn.style.marginBottom = '20px';
+        this.resumeBtn.style.backgroundColor = '#00ffcc';
+        this.resumeBtn.style.color = '#000';
+        this.resumeBtn.style.border = 'none';
+        this.resumeBtn.style.borderRadius = '10px';
+        this.resumeBtn.style.cursor = 'pointer';
+        this.resumeBtn.addEventListener('click', () => {
+            this.togglePause(false);
+        });
+        this.pauseMenu.appendChild(this.resumeBtn);
+
+        // Restart Button (Pause Menu)
+        this.pauseRestartBtn = document.createElement('button');
+        this.pauseRestartBtn.innerText = 'RESTART';
+        this.pauseRestartBtn.style.fontSize = '40px';
+        this.pauseRestartBtn.style.fontWeight = 'bold';
+        this.pauseRestartBtn.style.padding = '15px 60px';
+        this.pauseRestartBtn.style.backgroundColor = '#ff4444';
+        this.pauseRestartBtn.style.color = 'white';
+        this.pauseRestartBtn.style.border = 'none';
+        this.pauseRestartBtn.style.borderRadius = '10px';
+        this.pauseRestartBtn.style.cursor = 'pointer';
+        this.pauseRestartBtn.addEventListener('click', () => {
+            window.location.reload();
+        });
+        this.pauseMenu.appendChild(this.pauseRestartBtn);
+
+        document.body.appendChild(this.pauseMenu);
+
         this.gameStarted = false;
+        this.isPaused = false;
+    }
+
+    togglePause(paused) {
+        this.isPaused = paused;
+        if (this.isPaused) {
+            this.pauseMenu.style.display = 'flex';
+            if (this.input) this.input.exitPointerLock();
+        } else {
+            this.pauseMenu.style.display = 'none';
+            if (this.input) this.input.requestPointerLock();
+        }
     }
 
     update(speed, score, charge = 0, crashed = false, lives = 3, dead = false, won = false) {
@@ -242,11 +330,17 @@ export class HUD {
             this.restartBtn.style.display = 'block';
             this.crashMsg.style.display = 'none';
             this.gameOverMsg.style.display = 'none';
+            if (this.input) {
+                this.input.exitPointerLock();
+            }
         } else if (dead) {
             this.gameOverMsg.style.display = 'block';
             this.restartBtn.style.display = 'block';
             this.crashMsg.style.display = 'none';
             this.winMsg.style.display = 'none';
+            if (this.input) {
+                this.input.exitPointerLock();
+            }
         } else if (crashed) {
             this.crashMsg.style.display = 'block';
             this.gameOverMsg.style.display = 'none';

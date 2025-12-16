@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { TrickSystem } from './TrickSystem.js';
+import snowmanUrl from '../assets/snowman.glb?url';
 
 export class PlayerController {
     constructor(scene, input, terrain) {
@@ -26,7 +28,7 @@ export class PlayerController {
         this.friction = 0.2;
         this.turnSpeed = 3.0;
         this.maxSpeed = 60.0;
-        this.jumpForce = 15.0;
+        this.jumpForce = 35.0;
         this.jumpCharge = 0;
         this.maxJumpCharge = 1.0;
 
@@ -44,15 +46,44 @@ export class PlayerController {
         this.mesh.castShadow = true;
         this.scene.add(this.mesh);
 
-        // Body
-        const bodyGeo = new THREE.BoxGeometry(0.5, 1.8, 0.5);
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff4444 });
-        this.body = new THREE.Mesh(bodyGeo, bodyMat);
-        this.body.position.y = 0.9;
-        this.body.castShadow = true;
-        this.mesh.add(this.body);
+        // Load Snowman
+        const loader = new GLTFLoader();
+        loader.load(snowmanUrl, (gltf) => {
+            const model = gltf.scene;
+            this.body = model;
 
-        // Snowboard
+            // Setup Visuals
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            // Positioning
+            // Snowboard is at y=0.05, height ~0.1.
+            model.position.y = 0.1;
+
+            // Scale
+            model.scale.set(0.5, 0.5, 0.5);
+
+            // Orientation
+            model.rotation.y = Math.PI;
+
+            this.mesh.add(model);
+            console.log("Snowman Loaded");
+
+        }, undefined, (err) => {
+            console.error("Failed to load snowman:", err);
+            // Fallback
+            const bodyGeo = new THREE.BoxGeometry(0.5, 1.8, 0.5);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff4444 });
+            this.body = new THREE.Mesh(bodyGeo, bodyMat);
+            this.body.position.y = 0.9;
+            this.mesh.add(this.body);
+        });
+
+        // Snowboard (Keep it)
         const boardGeo = new THREE.BoxGeometry(0.4, 0.1, 1.6);
         const boardMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         this.board = new THREE.Mesh(boardGeo, boardMat);
@@ -85,7 +116,7 @@ export class PlayerController {
     handleInput(dt) {
         let rotationDelta = 0;
 
-        // Turning - ALWAYS allow
+        // Turning
         let turn = 0;
         if (this.input.actions.left) { turn += 1; }
         if (this.input.actions.right) { turn -= 1; }
@@ -105,21 +136,22 @@ export class PlayerController {
         // Jumping
         if (this.grounded) {
             if (this.input.actions.jump) {
-                this.jumpCharge = Math.min(this.jumpCharge + dt * 2, this.maxJumpCharge);
-                this.body.scale.y = 1.0 - (this.jumpCharge * 0.3);
+                this.jumpCharge = Math.min(this.jumpCharge + dt * 0.5, this.maxJumpCharge);
+                if (this.body) this.body.scale.y = 1.0 - (this.jumpCharge * 0.4); // Scale for squish if loaded
             } else {
                 if (this.jumpCharge > 0) {
                     this.grounded = false;
-                    this.velocity.y += this.jumpForce * (0.5 + this.jumpCharge * 0.5);
+                    const finalForce = this.jumpForce * (0.3 + this.jumpCharge * 0.7);
+                    this.velocity.y += finalForce;
                     this.jumpCharge = 0;
-                    this.body.scale.y = 1.0;
+                    if (this.body) this.body.scale.y = 1.0;
                     this.trickSystem.startJump();
                 }
-                this.body.scale.y = 1.0;
+                if (this.body) this.body.scale.y = 1.0;
             }
         } else {
             this.jumpCharge = 0;
-            this.body.scale.y = 1.0;
+            if (this.body) this.body.scale.y = 1.0;
         }
     }
 
@@ -222,16 +254,12 @@ export class PlayerController {
                 const currentSpeed = this.velocity.length();
                 if (currentSpeed > 1.0) {
                     const steerFactor = 0.8 * dt;
-                    // Bend velocity towards heading
                     const newVel = this.velocity.clone().lerp(desiredDir.multiplyScalar(currentSpeed), steerFactor);
-
-                    // Preserve Y velocity
                     newVel.y = this.velocity.y;
                     this.velocity.copy(newVel);
                 }
             }
 
-            // Forward Air Boost
             if (this.input.actions.forward) {
                 const fwd = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
                 fwd.y = 0;

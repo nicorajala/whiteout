@@ -61,7 +61,8 @@ export class PlayerController {
         this.staminaRegenRate = 0.5; // How fast stamina regenerates (faster regen to compensate)
         this.staminaRegenDelay = 1.0; // Delay in seconds before stamina starts regenerating
         this.staminaRegenTimer = 0; // Timer tracking time since last boost
-        this.boostMultiplier = 1.025; // Speed multiplier when boosting (subtle boost)
+        this.boostBaseSpeed = 100.0; // Fixed speed addition when boosting (helps when stationary/slow)
+        this.boostMaxSpeed = 150.0; // Speed threshold where boost becomes less effective
 
         this.init();
     }
@@ -343,14 +344,24 @@ export class PlayerController {
                 this.velocity.multiplyScalar(1 - this.friction * dt);
             }
 
-            // Speed Boost (Shift key) - consumes stamina (subtle speed increase)
+            // Speed Boost (Shift key) - consumes stamina (more effective at low speeds, less at high speeds)
             // Only boost if stamina is available - if out of stamina, ignore shift input completely
-            const canBoost = this.stamina > 0.01 && this.velocity.lengthSq() > 0.1;
-            if (this.input.actions.boost && canBoost) {
-                // Apply subtle boost multiplier to velocity (small increase to help over bumps)
+            if (this.input.actions.boost && this.stamina > 0.01 && this.velocity.lengthSq() > 0.01) {
                 const currentSpeed = this.velocity.length();
-                const boostSpeed = currentSpeed * this.boostMultiplier;
-                this.velocity.normalize().multiplyScalar(boostSpeed);
+                const velDir = this.velocity.clone().normalize();
+                
+                // Calculate boost effectiveness based on current speed
+                // More effective at low speeds, less effective at high speeds
+                const speedRatio = Math.min(currentSpeed / this.boostMaxSpeed, 1.0);
+                const boostEffectiveness = 1.0 - (speedRatio * 0.7); // Reduces to 30% effectiveness at max speed
+                
+                // Apply boost: fixed base speed + speed-dependent multiplier
+                const baseBoost = this.boostBaseSpeed * boostEffectiveness;
+                const speedBoost = currentSpeed * 0.025 * boostEffectiveness; // Small multiplier, scaled down at high speeds
+                const totalBoost = baseBoost + speedBoost;
+                
+                // Apply boost in direction of movement
+                this.velocity.add(velDir.multiplyScalar(totalBoost * dt));
                 
                 // Deplete stamina
                 this.stamina = Math.max(0, this.stamina - this.staminaDepletionRate * dt);

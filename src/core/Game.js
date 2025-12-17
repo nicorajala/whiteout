@@ -5,6 +5,10 @@ import { Terrain } from '../world/Terrain.js';
 import { PlayerController } from '../player/PlayerController.js';
 import { CameraController } from '../camera/CameraController.js';
 import { HUD } from '../ui/HUD.js';
+import { TrailSystem } from '../world/TrailSystem.js';
+import { LevelManager } from './LevelManager.js';
+import { ProceduralTerrain } from '../world/ProceduralTerrain.js';
+import { Level2Terrain } from '../world/Level2Terrain.js';
 
 export class Game {
     constructor() {
@@ -24,6 +28,8 @@ export class Game {
         this.cameraController = null;
         this.hud = null;
         this.snowParticles = null;
+        this.trailSystem = null;
+        this.levelManager = null;
 
         this.init();
     }
@@ -63,20 +69,108 @@ export class Game {
 
         // Initialize Subsystems
         this.input = new Input();
-        this.terrain = new Terrain(this.scene);
-        this.player = new PlayerController(this.scene, this.input, this.terrain);
-        this.cameraController = new CameraController(this.camera, this.player.mesh, this.input);
-        this.hud = new HUD(this.input);
+        this.levelManager = new LevelManager();
+        this.loadLevel(1);
 
         // Create Snowfall
         this.createSnowfall();
 
-        // Pass game instance to HUD for theme switching
-        this.hud.game = this;
+
+    }
+
+    loadLevel(levelNum) {
+        console.log(`Loading level ${levelNum}...`);
+
+        // Clear existing terrain if any
+        if (this.terrain) {
+            this.scene.remove(this.terrain.mesh);
+            this.terrain = null;
+        }
+
+        // Get level config
+        this.levelManager.currentLevel = levelNum;
+        const config = this.levelManager.getCurrentLevelConfig();
+
+        // Create terrain based on type
+        if (config.terrainType === 'model') {
+            this.terrain = new Terrain(this.scene);
+        } else if (config.terrainType === 'procedural') {
+            this.terrain = new ProceduralTerrain(this.scene);
+        } else if (config.terrainType === 'level2') {
+            this.terrain = new Level2Terrain(this.scene);
+        }
+
+        // Apply level lighting
+        this.scene.background = new THREE.Color(config.skyColor);
+        this.scene.fog = new THREE.FogExp2(config.fogColor, config.fogDensity);
+        this.ambientLight.intensity = config.ambientIntensity;
+        this.dirLight.intensity = config.directionalIntensity;
+
+        this.dirLight.color = new THREE.Color(0xffffff);
+
+        // Initialize or reset player
+        const applySpawnPosition = () => {
+            const spawnPos = this.computeSpawnPosition(config);
+            if (this.player) {
+                this.player.reset(spawnPos);
+            }
+        };
+
+        if (!this.player) {
+            this.player = new PlayerController(this.scene, this.input, this.terrain, this);
+            applySpawnPosition();
+            this.cameraController = new CameraController(this.camera, this.player.mesh, this.input);
+            this.trailSystem = new TrailSystem(this.scene);
+        } else {
+            this.player.terrain = this.terrain;
+            this.player.game = this;
+            applySpawnPosition();
+        }
+
+        // Ensure we relocate the player above the final terrain height once it finishes loading
+        const terrainRef = this.terrain;
+        if (terrainRef && !terrainRef.isLoaded) {
+            const waitForTerrain = () => {
+                if (terrainRef !== this.terrain) return; // Level switched while waiting
+                if (terrainRef.isLoaded) {
+                    applySpawnPosition();
+                } else {
+                    requestAnimationFrame(waitForTerrain);
+                }
+            };
+            requestAnimationFrame(waitForTerrain);
+        }
+
+        // Initialize or update HUD
+        if (!this.hud) {
+            this.hud = new HUD(this.input);
+            this.hud.game = this;
+        }
+        this.hud.updateWinCondition(config.winCondition);
+
+        console.log(`Level ${levelNum} loaded!`);
+    }
+
+    computeSpawnPosition(config) {
+        const baseSpawn = config && config.spawnPosition
+            ? new THREE.Vector3(config.spawnPosition.x, config.spawnPosition.y, config.spawnPosition.z)
+            : new THREE.Vector3(0, 100, 40);
+
+        if (this.terrain && this.terrain.isLoaded) {
+            const bounds = new THREE.Box3().setFromObject(this.terrain.mesh);
+            const safeY = Number.isFinite(bounds.max.y) ? bounds.max.y + 20 : baseSpawn.y;
+            baseSpawn.y = Math.max(baseSpawn.y, safeY);
+            
+            // Apply level-specific height offset after computing spawn height
+            const heightOffset = config && config.spawnHeightOffset ? config.spawnHeightOffset : 0;
+            baseSpawn.y += heightOffset;
+        }
+
+        return baseSpawn;
     }
 
     setTheme(theme) {
-        if (theme === 'bright') {
+        if (theme === 'Day') {
             // Bright Day Theme
             const skyColor = 0xd6eaf8;
             this.scene.background = new THREE.Color(skyColor);
@@ -215,6 +309,7 @@ export class Game {
 
         if (this.player) this.player.update(dt);
         if (this.cameraController) this.cameraController.update(dt);
+        if (this.trailSystem && this.player) this.trailSystem.update(dt, this.player);
 
         // Animate snowfall
         if (this.snowParticles && this.player) {

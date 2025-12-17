@@ -4,17 +4,18 @@ import { TrickSystem } from './TrickSystem.js';
 import snowmanUrl from '../assets/snowman.glb?url';
 
 export class PlayerController {
-    constructor(scene, input, terrain) {
+    constructor(scene, input, terrain, game = null) {
         this.scene = scene;
         this.input = input;
         this.terrain = terrain;
+        this.game = game;
         this.trickSystem = new TrickSystem();
 
         this.mesh = null;
         this.body = null;
         this.board = null;
 
-        this.position = new THREE.Vector3(0, 50, 40); // Lowered from 10 to spawn on mountain
+        this.position = new THREE.Vector3(0, 100, 0); // Higher spawn to avoid underground
         this.velocity = new THREE.Vector3();
         this.quaternion = new THREE.Quaternion(); // Master Rotation
         this.angularVelocity = new THREE.Vector3(); // Physics Rotation
@@ -36,8 +37,9 @@ export class PlayerController {
         this.maxJumpCharge = 1.0;
 
         // Input Sensitivities (Torque)
-        this.airSpinTorque = 25.0; // Increased from 15.0 for even faster spins
-        this.airFlipTorque = 15.0; // Increased from 12.0 for faster flips
+        // Input Sensitivities (Torque)
+        this.airSpinTorque = 45.0; // Increased significantly for faster spins
+        this.airFlipTorque = 30.0; // Increased significantly for faster flips
 
         this.airTime = 0;
         this.score = 0;
@@ -87,12 +89,42 @@ export class PlayerController {
         this.mesh.add(this.board);
     }
 
+    reset(startPosition = new THREE.Vector3(0, 50, 40)) {
+        // Reset position and physics
+        this.position.copy(startPosition);
+        this.velocity.set(0, 0, 0);
+        this.quaternion.identity();
+        this.angularVelocity.set(0, 0, 0);
+
+        // Reset game state
+        this.score = 0;
+        this.lives = 3;
+        this.crashed = false;
+        this.dead = false;
+        this.won = false;
+        this.grounded = false;
+        this.airTime = 0;
+        this.jumpCharge = 0;
+        this.recoveryTimer = 0;
+
+        // Reset trick system
+        this.trickSystem = new TrickSystem();
+
+        // Update mesh
+        this.mesh.position.copy(this.position);
+        this.mesh.quaternion.copy(this.quaternion);
+    }
+
+
     update(dt) {
         // SAFETY: Wait for Terrain
         if (!this.terrain.isLoaded) return;
 
         // Check win condition
-        if (!this.won && !this.dead && this.score >= 6000) {
+        const winCondition = this.game && this.game.levelManager
+            ? this.game.levelManager.getWinCondition()
+            : 6000;
+        if (!this.won && !this.dead && this.score >= winCondition) {
             this.won = true;
             console.log("YOU WIN!");
         }

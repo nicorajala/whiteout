@@ -70,38 +70,57 @@ export class Terrain {
                 }
             });
 
-            const treeCount = 750; // Dense forest coverage for testing
-            console.log(`Spawning ${treeCount} trees...`);
+            // Grid-based stratified sampling for even distribution
+            const gridSize = 60; // 60x60 grid
+            const cellSize = 70; // Size of each cell
+            const areaWidth = gridSize * cellSize;
+            const areaDepth = gridSize * cellSize;
 
-            for (let i = 0; i < treeCount; i++) {
-                // Much larger area to cover entire mountain (base, middle, top)
-                const x = (Math.random() - 0.5) * 2000; // Very wide spread
-                const z = (Math.random() - 0.5) * 3000; // Very long coverage
+            let treesPlaced = 0;
+            console.log(`Attempting to place trees in ${gridSize}x${gridSize} grid...`);
 
-                // Raycast from high above to find the mountain surface
-                raycaster.set(new THREE.Vector3(x, 2000, z), down);
-                const intersects = raycaster.intersectObject(this.mesh, true);
+            for (let gx = 0; gx < gridSize; gx++) {
+                for (let gz = 0; gz < gridSize; gz++) {
+                    // Random position within this grid cell
+                    const x = (gx * cellSize) + (Math.random() * cellSize) - (areaWidth / 2);
+                    const z = (gz * cellSize) + (Math.random() * cellSize) - (areaDepth / 2);
 
-                if (intersects.length > 0) {
-                    const hit = intersects[0];
-                    const tree = treeModel.clone();
+                    // Raycast from high above to find the mountain surface
+                    raycaster.set(new THREE.Vector3(x, 2000, z), down);
+                    const intersects = raycaster.intersectObject(this.mesh, true);
 
-                    // Position on mountain surface
-                    tree.position.copy(hit.point);
-                    tree.position.y += 7.0; // Lift above surface to prevent burial
+                    if (intersects.length > 0) {
+                        const hit = intersects[0];
 
-                    // Random rotation
-                    tree.rotation.y = Math.random() * Math.PI * 2;
+                        // Get surface normal for slope check
+                        const obj = hit.object;
+                        const nMat = new THREE.Matrix3().getNormalMatrix(obj.matrixWorld);
+                        const normal = hit.face.normal.clone().applyMatrix3(nMat).normalize();
 
-                    // Random scale variation
-                    const scale = 20.0 * (0.8 + Math.random() * 0.4);
-                    tree.scale.set(scale, scale, scale);
+                        // Only place trees on relatively flat surfaces (slope check)
+                        // normal.y > 0.6 means angle < ~53 degrees from vertical
+                        if (normal.y > 0.6) {
+                            const tree = treeModel.clone();
 
-                    this.mesh.add(tree);
+                            // Position on mountain surface
+                            tree.position.copy(hit.point);
+                            tree.position.y += 7.0; // Lift above surface to prevent burial
+
+                            // Random rotation
+                            tree.rotation.y = Math.random() * Math.PI * 2;
+
+                            // Random scale variation
+                            const scale = 20.0 * (0.8 + Math.random() * 0.4);
+                            tree.scale.set(scale, scale, scale);
+
+                            this.mesh.add(tree);
+                            treesPlaced++;
+                        }
+                    }
                 }
             }
 
-            console.log('Trees spawned successfully!');
+            console.log(`Trees spawned successfully! Placed ${treesPlaced} trees.`);
         }, undefined, (error) => {
             console.error('Failed to load tree model:', error);
         });

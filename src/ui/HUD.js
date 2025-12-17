@@ -160,6 +160,47 @@ export class HUD {
         });
         document.body.appendChild(this.restartBtn);
 
+        // NEXT LEVEL BUTTON (shown on win screen)
+        this.nextLevelBtn = document.createElement('button');
+        this.nextLevelBtn.innerText = "NEXT LEVEL";
+        this.nextLevelBtn.style.position = 'absolute';
+        this.nextLevelBtn.style.top = '60%';
+        this.nextLevelBtn.style.left = '35%';
+        this.nextLevelBtn.style.transform = 'translate(-50%, -50%)';
+        this.nextLevelBtn.style.fontSize = '40px';
+        this.nextLevelBtn.style.fontWeight = 'bold';
+        this.nextLevelBtn.style.padding = '20px 60px';
+        this.nextLevelBtn.style.backgroundColor = '#ffcc00';
+        this.nextLevelBtn.style.color = '#000';
+        this.nextLevelBtn.style.border = 'none';
+        this.nextLevelBtn.style.borderRadius = '10px';
+        this.nextLevelBtn.style.cursor = 'pointer';
+        this.nextLevelBtn.style.display = 'none';
+        this.nextLevelBtn.style.pointerEvents = 'auto';
+        this.nextLevelBtn.style.zIndex = '2000';
+        this.nextLevelBtn.addEventListener('click', () => {
+            if (this.game && this.game.levelManager) {
+                const nextLevel = this.game.levelManager.currentLevel + 1;
+                this.game.loadLevel(nextLevel);
+                this.nextLevelBtn.style.display = 'none';
+                this.restartBtn.style.display = 'none';
+                this.winMsg.style.display = 'none';
+                this.gameStarted = true;
+                if (this.input) {
+                    this.input.requestPointerLock();
+                }
+            }
+        });
+        this.nextLevelBtn.addEventListener('mouseenter', () => {
+            this.nextLevelBtn.style.backgroundColor = '#ffaa00';
+        });
+        this.nextLevelBtn.addEventListener('mouseleave', () => {
+            this.nextLevelBtn.style.backgroundColor = '#ffcc00';
+        });
+        // Adjust restart button position when next level is shown
+        this.restartBtn.style.left = '65%';
+        document.body.appendChild(this.nextLevelBtn);
+
         // START SCREEN
         this.startScreen = document.createElement('div');
         this.startScreen.style.position = 'absolute';
@@ -257,11 +298,11 @@ export class HUD {
             return btn;
         };
 
-        const darkBtn = createThemeBtn('DARK MODE', 'dark');
+        const darkBtn = createThemeBtn('Night', 'Night');
         darkBtn.style.backgroundColor = 'white'; // Default selected
         darkBtn.style.color = 'black';
 
-        const brightBtn = createThemeBtn('BRIGHT MODE', 'bright');
+        const brightBtn = createThemeBtn('Day', 'Day');
 
         themeContainer.appendChild(darkBtn);
         themeContainer.appendChild(brightBtn);
@@ -332,6 +373,11 @@ export class HUD {
 
         this.gameStarted = false;
         this.isPaused = false;
+        this.winCondition = 6000; // Default win condition
+    }
+
+    updateWinCondition(points) {
+        this.winCondition = points;
     }
 
     togglePause(paused) {
@@ -368,6 +414,7 @@ export class HUD {
         if (won) {
             this.winMsg.style.display = 'block';
             this.restartBtn.style.display = 'block';
+            this.nextLevelBtn.style.display = 'block'; // Show next level button
             this.crashMsg.style.display = 'none';
             this.gameOverMsg.style.display = 'none';
             if (this.input) {
